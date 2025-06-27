@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Account Creation Date Viewer",
+  "version": "1.0",
+  "description": "Shows account creation dates next to post timestamps",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+} 
