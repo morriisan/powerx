@@ -115,6 +115,7 @@ function processExistingPosts() {
 
 // Initialize the extension
 function init() {
+    console.log('[Content] Extension initialized, looking for test username only');
     processExistingPosts();
     observeNewPosts();
 }
