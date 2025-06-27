@@ -1,43 +1,84 @@
 // Function to fetch account creation date
 async function fetchAccountCreationDate(username) {
     try {
+        console.log(`[Content] Fetching data for user: ${username}`);
+        
         // First, check if we already have the date in storage
         const result = await chrome.storage.local.get(username);
         if (result[username]) {
+            console.log(`[Content] Found cached date for ${username}: ${result[username]}`);
             return result[username];
         }
 
-        // If not in storage, fetch it from the API
-        // Note: Replace this URL with the actual API endpoint for your platform
-        const response = await fetch(`https://api.platform.com/users/${username}`);
-        const data = await response.json();
+        console.log(`[Content] No cache found for ${username}, requesting from background`);
+        // If not in storage, fetch it using the background script
+        const response = await new Promise((resolve) => {
+            chrome.runtime.sendMessage({
+                type: 'FETCH_PROFILE',
+                username: username
+            }, (response) => {
+                resolve(response);
+            });
+        });
+
+        if (response && response.joinDate) {
+            console.log(`[Content] Received join date for ${username}: ${response.joinDate}`);
+            // Store the creation date in Chrome storage
+            await chrome.storage.local.set({ [username]: response.joinDate });
+            return response.joinDate;
+        }
         
-        // Store the creation date in Chrome storage
-        const creationDate = new Date(data.created_at).toLocaleDateString();
-        await chrome.storage.local.set({ [username]: creationDate });
-        
-        return creationDate;
+        console.log(`[Content] No join date found for ${username}`);
+        return null;
     } catch (error) {
-        console.error('Error fetching account creation date:', error);
+        console.error(`[Content] Error fetching data for ${username}:`, error);
         return null;
     }
 }
 
+// Function to extract join date from profile page
+function extractJoinDate() {
+    const joinDateElement = document.querySelector('span[data-testid="UserJoinDate"]');
+    if (joinDateElement) {
+        return joinDateElement.textContent.replace('Joined ', '');
+    }
+    return null;
+}
+
+// Listen for messages from the background script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.type === 'EXTRACT_JOIN_DATE') {
+        const joinDate = extractJoinDate();
+        sendResponse({ joinDate });
+    }
+    return true;
+});
+
 // Function to add creation date to timestamp
 async function addCreationDate(postElement) {
-    const timestampElement = postElement.querySelector('.timestamp');
-    const usernameElement = postElement.querySelector('.username');
+    // Find the username element
+    const usernameElement = postElement.querySelector('div[data-testid="User-Name"] a');
+    if (!usernameElement) return;
     
-    if (!timestampElement || !usernameElement) return;
-    
-    const username = usernameElement.textContent.trim();
-    
-    // Check if we already added the creation date
-    if (timestampElement.dataset.creationDateAdded) return;
+    // Extract username from the href
+    const href = usernameElement.getAttribute('href');
+    if (!href) return;
+    const username = href.split('/')[1];
+    console.log(username, "username");
+    // Find the timestamp element
+    const timestampElement = postElement.querySelector('time');
+    if (!timestampElement || timestampElement.dataset.creationDateAdded) return;
     
     const creationDate = await fetchAccountCreationDate(username);
     if (creationDate) {
-        timestampElement.textContent += ` · Account created: ${creationDate}`;
+        console.log(`[Content] Adding join date to tweet for ${username}`);
+        // Create a new span for the creation date
+        const creationSpan = document.createElement('span');
+        creationSpan.textContent = ` · Joined ${creationDate}`;
+        creationSpan.style.color = 'rgb(83, 100, 113)'; // Twitter's gray color
+        
+        // Insert after the timestamp
+        timestampElement.parentNode.insertBefore(creationSpan, timestampElement.nextSibling);
         timestampElement.dataset.creationDateAdded = 'true';
     }
 }
@@ -48,8 +89,8 @@ function observeNewPosts() {
         mutations.forEach((mutation) => {
             mutation.addedNodes.forEach((node) => {
                 if (node.nodeType === Node.ELEMENT_NODE) {
-                    // Adjust these selectors based on the actual structure of the posts
-                    const posts = node.querySelectorAll('.post');
+                    // Look for tweet articles
+                    const posts = node.querySelectorAll('article[data-testid="tweet"]');
                     posts.forEach(addCreationDate);
                 }
             });
@@ -57,7 +98,7 @@ function observeNewPosts() {
     });
 
     // Start observing the main content area
-    const mainContent = document.querySelector('.main-content');
+    const mainContent = document.querySelector('main');
     if (mainContent) {
         observer.observe(mainContent, {
             childList: true,
@@ -68,8 +109,7 @@ function observeNewPosts() {
 
 // Initial processing of existing posts
 function processExistingPosts() {
-    // Adjust this selector based on the actual structure of the posts
-    const posts = document.querySelectorAll('.post');
+    const posts = document.querySelectorAll('article[data-testid="tweet"]');
     posts.forEach(addCreationDate);
 }
 
